@@ -11,7 +11,7 @@ use std::{
 };
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use ktrace_protocol::{Packet, PacketDeserializer, PacketSerializer};
+use ktrace_protocol::{Packet, PacketDeserializer, PacketSerializer, ThreadStatus};
 
 pub fn spawn(sock_path: String) -> QueryServer {
 	let (master_send, master_recv) = std::sync::mpsc::channel();
@@ -77,13 +77,13 @@ pub fn spawn(sock_path: String) -> QueryServer {
 								let _ = threads.remove(&thread);
 							}
 							Message::Idle => {
-								threads.get_mut(&thread).map(|_state| {
-									// TODO
+								threads.get_mut(&thread).map(|state| {
+									state.status = ThreadStatus::Idle;
 								});
 							}
 							Message::Resume => {
-								threads.get_mut(&thread).map(|_state| {
-									// TODO
+								threads.get_mut(&thread).map(|state| {
+									state.status = ThreadStatus::Running;
 								});
 							}
 						}
@@ -114,6 +114,24 @@ pub fn spawn(sock_path: String) -> QueryServer {
 								res.set(Packet::TraceLog { addresses })
 									.expect("failed to set response");
 							}
+							Packet::GetStatus { thread_id } => {
+								let status = threads
+									.get(&thread_id)
+									.map(|state| state.status)
+									.unwrap_or(ThreadStatus::Dead);
+
+								res.set(Packet::Status { status })
+									.expect("failed to set response");
+							}
+							Packet::GetInstCount { thread_id } => {
+								let count = threads
+									.get(&thread_id)
+									.map(|state| state.addr_counter.load(Relaxed))
+									.unwrap_or(0);
+
+								res.set(Packet::InstCount { count })
+									.expect("failed to set response");
+							}
 							_ => {
 								res.set(Packet::BadPacket).expect("failed to set response");
 							}
@@ -129,8 +147,9 @@ pub fn spawn(sock_path: String) -> QueryServer {
 
 pub struct ThreadState {
 	pub id:           u32,
-	pub addr_counter: Arc<AtomicUsize>,
 	pub temp_file:    File,
+	pub addr_counter: Arc<AtomicUsize>,
+	pub status:       ThreadStatus,
 }
 
 pub struct QueryServer {

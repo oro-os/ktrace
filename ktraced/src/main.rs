@@ -95,6 +95,7 @@ fn handle_vcpu_stream(
 		id:           vcpu.id,
 		addr_counter: addr_counter.clone(),
 		temp_file:    addr_file.reopen()?,
+		status:       Default::default(),
 	});
 
 	info!("received VcpuInit for vcpu {}", vcpu.id);

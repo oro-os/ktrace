@@ -1,5 +1,5 @@
 use std::{
-	sync::{Arc, Condvar, Mutex},
+	sync::{Arc, Condvar, Mutex, atomic::Ordering::Relaxed},
 	time::Duration,
 };
 
@@ -73,11 +73,30 @@ fn main() {
 			let client = query_client::run(sock_path, StateOobStream(app_state.clone()));
 
 			loop {
+				let mut should_invalidate = false;
 				if let Some(Packet::TraceLog { addresses }) = client.request(Packet::GetTraceLog {
 					count:     100,
 					thread_id: 0,
 				}) {
 					*app_state.last_addresses.lock().unwrap() = addresses;
+					should_invalidate = true;
+				}
+
+				if let Some(Packet::InstCount { count }) =
+					client.request(Packet::GetInstCount { thread_id: 0 })
+				{
+					app_state.instruction_count.store(count, Relaxed);
+					should_invalidate = true;
+				}
+
+				if let Some(Packet::Status { status }) =
+					client.request(Packet::GetStatus { thread_id: 0 })
+				{
+					app_state.thread_status.store(status as usize, Relaxed);
+					should_invalidate = true;
+				}
+
+				if should_invalidate {
 					invalidate();
 				}
 

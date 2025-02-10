@@ -1,18 +1,40 @@
 use std::sync::{
 	Mutex,
-	atomic::{AtomicBool, Ordering::Relaxed},
+	atomic::{AtomicBool, AtomicUsize, Ordering::Relaxed},
 };
+
+use ktrace_protocol::ThreadStatus;
 
 #[derive(Default, Debug)]
 pub struct AppState {
-	pub daemon_connected: Flag,
-	pub last_addresses:   Mutex<Vec<u64>>,
+	pub daemon_connected:  Flag,
+	pub last_addresses:    Mutex<Vec<u64>>,
+	pub thread_status:     AtomicUsize,
+	pub instruction_count: AtomicUsize,
 }
 
 impl crate::widget::status_bar::StatusBarState for AppState {
 	#[inline]
 	fn is_connected(&self) -> bool {
 		self.daemon_connected.get()
+	}
+
+	#[inline]
+	fn instruction_count(&self) -> usize {
+		self.instruction_count.load(Relaxed)
+	}
+
+	#[inline]
+	fn thread_status(&self) -> ThreadStatus {
+		if !self.is_connected() {
+			return ThreadStatus::Dead;
+		}
+
+		match self.thread_status.load(Relaxed) {
+			0 => ThreadStatus::Idle,
+			1 => ThreadStatus::Running,
+			_ => ThreadStatus::Dead,
+		}
 	}
 }
 

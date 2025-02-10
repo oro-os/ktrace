@@ -8,8 +8,21 @@ pub const DEFAULT_SOCKET_PATH: &str = "/tmp/ktrace-query.sock";
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Packet {
 	BadPacket,
-	GetTraceLog { count: u64, thread_id: u32 },
+	GetTraceLog { thread_id: u32, count: u64 },
+	GetStatus { thread_id: u32 },
+	GetInstCount { thread_id: u32 },
+	Status { status: ThreadStatus },
 	TraceLog { addresses: Vec<u64> },
+	InstCount { count: usize },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Default)]
+#[repr(usize)]
+pub enum ThreadStatus {
+	#[default]
+	Idle    = 0,
+	Running = 1,
+	Dead    = 2,
 }
 
 pub trait PacketSerializer: io::Write + Sized {
