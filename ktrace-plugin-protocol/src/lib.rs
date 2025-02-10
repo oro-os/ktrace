@@ -8,9 +8,9 @@ pub const DEFAULT_SOCKET_PATH: &str = "/tmp/ktrace.sock";
 #[repr(u8)]
 pub enum Packet {
 	VcpuInit(VcpuInit),
-	VcpuResume(VcpuResume),
-	VcpuIdle(VcpuIdle),
-	VcpuExit(VcpuExit),
+	VcpuResume,
+	VcpuIdle,
+	VcpuExit,
 	Inst(Inst),
 }
 
@@ -19,9 +19,9 @@ impl EnDec for Packet {
 		let code = r.read_u8()?;
 		match code {
 			1 => Ok(Packet::VcpuInit(VcpuInit::read(r)?)),
-			2 => Ok(Packet::VcpuResume(VcpuResume::read(r)?)),
-			3 => Ok(Packet::VcpuIdle(VcpuIdle::read(r)?)),
-			4 => Ok(Packet::VcpuExit(VcpuExit::read(r)?)),
+			2 => Ok(Packet::VcpuResume),
+			3 => Ok(Packet::VcpuIdle),
+			4 => Ok(Packet::VcpuExit),
 			5 => Ok(Packet::Inst(Inst::read(r)?)),
 			_ => {
 				Err(std::io::Error::new(
@@ -38,18 +38,9 @@ impl EnDec for Packet {
 				w.write_u8(1)?;
 				v.write(w)
 			}
-			Packet::VcpuResume(v) => {
-				w.write_u8(2)?;
-				v.write(w)
-			}
-			Packet::VcpuIdle(v) => {
-				w.write_u8(3)?;
-				v.write(w)
-			}
-			Packet::VcpuExit(v) => {
-				w.write_u8(4)?;
-				v.write(w)
-			}
+			Packet::VcpuResume => w.write_u8(2),
+			Packet::VcpuIdle => w.write_u8(3),
+			Packet::VcpuExit => w.write_u8(4),
 			Packet::Inst(v) => {
 				w.write_u8(5)?;
 				v.write(w)
@@ -67,60 +58,6 @@ pub struct VcpuInit {
 impl EnDec for VcpuInit {
 	fn read<R: Read>(r: &mut R) -> std::io::Result<Self> {
 		Ok(VcpuInit {
-			id: r.read_u32::<LittleEndian>()?,
-		})
-	}
-
-	fn write<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
-		w.write_u32::<LittleEndian>(self.id)
-	}
-}
-
-#[derive(Debug)]
-#[repr(C)]
-pub struct VcpuResume {
-	pub id: u32,
-}
-
-impl EnDec for VcpuResume {
-	fn read<R: Read>(r: &mut R) -> std::io::Result<Self> {
-		Ok(VcpuResume {
-			id: r.read_u32::<LittleEndian>()?,
-		})
-	}
-
-	fn write<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
-		w.write_u32::<LittleEndian>(self.id)
-	}
-}
-
-#[derive(Debug)]
-#[repr(C)]
-pub struct VcpuIdle {
-	pub id: u32,
-}
-
-impl EnDec for VcpuIdle {
-	fn read<R: Read>(r: &mut R) -> std::io::Result<Self> {
-		Ok(VcpuIdle {
-			id: r.read_u32::<LittleEndian>()?,
-		})
-	}
-
-	fn write<W: Write>(&self, w: &mut W) -> std::io::Result<()> {
-		w.write_u32::<LittleEndian>(self.id)
-	}
-}
-
-#[derive(Debug)]
-#[repr(C)]
-pub struct VcpuExit {
-	pub id: u32,
-}
-
-impl EnDec for VcpuExit {
-	fn read<R: Read>(r: &mut R) -> std::io::Result<Self> {
-		Ok(VcpuExit {
 			id: r.read_u32::<LittleEndian>()?,
 		})
 	}

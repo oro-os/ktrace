@@ -8,3 +8,4 @@ publish = false
 ratatui = "0.29.0"
 crossterm = "0.28.1"
 ktrace-protocol.path = "../ktrace-protocol"
+clap = { version = "4.5.28", features = ["derive"] }

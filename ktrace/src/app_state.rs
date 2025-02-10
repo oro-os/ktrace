@@ -6,7 +6,6 @@ pub struct AppState {
 }
 
 impl AppState {
-	#[expect(dead_code)]
 	#[inline]
 	pub fn set_daemon_connected(&self, v: bool) {
 		self.daemon_connected.set(v);

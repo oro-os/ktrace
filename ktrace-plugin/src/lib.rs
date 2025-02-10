@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::Result;
 use ctor::ctor;
-use ktrace_plugin_protocol::{Inst, Packet, TraceWrite, VcpuExit, VcpuIdle, VcpuInit, VcpuResume};
+use ktrace_plugin_protocol::{Inst, Packet, TraceWrite, VcpuInit};
 use qemu_plugin::{
 	CallbackFlags, PluginId, TranslationBlock, VCPUIndex,
 	install::{Args, Info, Value},
@@ -71,7 +71,7 @@ impl HasCallbacks for Ktrace {
 	fn on_vcpu_resume(&mut self, _id: PluginId, vcpu_id: VCPUIndex) -> Result<()> {
 		let vcpu = self.vcpus.get(&vcpu_id).expect("vcpu not found");
 		let sock = unsafe { vcpu.trace.get().as_mut_unchecked() };
-		sock.write_packet(&Packet::VcpuResume(VcpuResume { id: vcpu_id.into() }))?;
+		sock.write_packet(&Packet::VcpuResume)?;
 		sock.flush()?;
 		Ok(())
 	}
@@ -79,7 +79,7 @@ impl HasCallbacks for Ktrace {
 	fn on_vcpu_idle(&mut self, _id: PluginId, vcpu_id: VCPUIndex) -> Result<()> {
 		let vcpu = self.vcpus.get(&vcpu_id).expect("vcpu not found");
 		let sock = unsafe { vcpu.trace.get().as_mut_unchecked() };
-		sock.write_packet(&Packet::VcpuIdle(VcpuIdle { id: vcpu_id.into() }))?;
+		sock.write_packet(&Packet::VcpuIdle)?;
 		sock.flush()?;
 		Ok(())
 	}
@@ -90,8 +90,7 @@ impl HasCallbacks for Ktrace {
 		vcpu_id: VCPUIndex,
 	) -> std::result::Result<(), anyhow::Error> {
 		let vcpu = self.vcpus.get(&vcpu_id).expect("vcpu not found");
-		unsafe { vcpu.trace.get().as_mut_unchecked() }
-			.write_packet(&Packet::VcpuExit(VcpuExit { id: vcpu_id.into() }))?;
+		unsafe { vcpu.trace.get().as_mut_unchecked() }.write_packet(&Packet::VcpuExit)?;
 		Ok(())
 	}
 

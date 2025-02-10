@@ -3,7 +3,9 @@ use std::io;
 use rmp_serde::{Deserializer, Serializer};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+pub const DEFAULT_SOCKET_PATH: &str = "/tmp/ktrace-query.sock";
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Packet {
 	Ping(u64),
 	Pong(u64),
@@ -26,3 +28,5 @@ pub trait PacketDeserializer: io::Read + Sized {
 			.map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 	}
 }
+
+impl<T: io::Read> PacketDeserializer for T {}
