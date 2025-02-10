@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::Result;
 use ctor::ctor;
-use ktrace_common::{Inst, Packet, TraceWrite, VcpuExit, VcpuIdle, VcpuInit, VcpuResume};
+use ktrace_plugin_protocol::{Inst, Packet, TraceWrite, VcpuExit, VcpuIdle, VcpuInit, VcpuResume};
 use qemu_plugin::{
 	CallbackFlags, PluginId, TranslationBlock, VCPUIndex,
 	install::{Args, Info, Value},
@@ -32,7 +32,7 @@ impl Register for Ktrace {
 		self.socket_path = if let Some(Value::String(v)) = args.parsed.get("sock") {
 			v.clone()
 		} else {
-			ktrace_common::DEFAULT_SOCKET_PATH.to_string()
+			ktrace_plugin_protocol::DEFAULT_SOCKET_PATH.to_string()
 		};
 
 		println!("ktrace: socket path is {}", self.socket_path);

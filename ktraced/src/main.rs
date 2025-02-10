@@ -4,14 +4,14 @@ use std::{
 };
 
 use clap::Parser;
-use ktrace_common::{Packet, TracePackedWrite, TraceRead};
+use ktrace_plugin_protocol::{Packet, TracePackedWrite, TraceRead};
 use log::{error, info, trace};
 
 /// Runs the Kflame daemon, to which the QEMU plugin connects.
 #[derive(Parser, Debug)]
 struct Args {
 	/// The path of the unix domain socket to listen on.
-	#[clap(short = 's', long = "sock", default_value = ktrace_common::DEFAULT_SOCKET_PATH)]
+	#[clap(short = 's', long = "sock", default_value = ktrace_plugin_protocol::DEFAULT_SOCKET_PATH)]
 	socket_path: String,
 	/// The root directory for temporary trace files.
 	#[clap(short = 'T', long = "tmpdir")]

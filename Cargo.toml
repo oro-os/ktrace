@@ -2,6 +2,8 @@
 resolver = "2"
 members = [
 	"ktrace-plugin",
+	"ktrace-plugin-protocol",
 	"ktraced",
-	"ktrace-common",
+	"ktrace",
+	"ktrace-protocol",
 ]

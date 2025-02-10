@@ -8,6 +8,7 @@ edition = "2021"
 clap = { version = "4.5.28", features = ["derive"] }
 env_logger = "0.11.6"
 log = "0.4.25"
-rustc-demangle = { version = "0.1.24", features = ["std"] }
-ktrace-common = { path = "../ktrace-common" }
 tempfile = "3.16.0"
+rustc-demangle = { version = "0.1.24", features = ["std"] }
+ktrace-plugin-protocol.path = "../ktrace-plugin-protocol"
+ktrace-protocol.path = "../ktrace-protocol"

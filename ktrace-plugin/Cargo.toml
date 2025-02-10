@@ -11,4 +11,4 @@ crate-type = ["cdylib"]
 anyhow = "1.0.93"
 qemu-plugin = "9.0.0-v0"
 ctor = "0.2.8"
-ktrace-common = { path = "../ktrace-common" }
+ktrace-plugin-protocol.path = "../ktrace-plugin-protocol"
