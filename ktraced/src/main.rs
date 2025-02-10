@@ -1,15 +1,21 @@
-use std::os::unix::net::UnixListener;
+use std::{
+	io::{self, BufWriter},
+	os::unix::net::{UnixListener, UnixStream},
+};
 
 use clap::Parser;
-use ktrace_common::TraceRead;
-use log::{info, trace};
+use ktrace_common::{Packet, TracePackedWrite, TraceRead};
+use log::{error, info, trace};
 
 /// Runs the Kflame daemon, to which the QEMU plugin connects.
 #[derive(Parser, Debug)]
 struct Args {
 	/// The path of the unix domain socket to listen on.
-	#[clap(short = 's', long, default_value = ktrace_common::DEFAULT_SOCKET_PATH)]
+	#[clap(short = 's', long = "sock", default_value = ktrace_common::DEFAULT_SOCKET_PATH)]
 	socket_path: String,
+	/// The root directory for temporary trace files.
+	#[clap(short = 'T', long = "tmpdir")]
+	tmpdir:      Option<String>,
 }
 
 fn main() {
@@ -30,14 +36,35 @@ fn main() {
 		let stream = stream.expect("failed to accept connection");
 
 		trace!("accepted connection");
-
-		std::thread::spawn(move || {
-			let mut rd = std::io::BufReader::new(stream);
-
-			loop {
-				let msg = rd.read_packet().expect("failed to read packet");
-				info!("received packet: {:?}", msg);
+		std::thread::spawn({
+			let tmpdir = args.tmpdir.clone();
+			move || {
+				if let Err(err) = handle_vcpu_stream(stream, tmpdir) {
+					error!("error handling stream: {err:?}");
+				}
 			}
 		});
+	}
+}
+
+fn handle_vcpu_stream(stream: UnixStream, tmpdir: Option<String>) -> io::Result<()> {
+	let packet_file = if let Some(tmpdir) = tmpdir {
+		tempfile::tempfile_in(tmpdir)?
+	} else {
+		tempfile::tempfile()?
+	};
+
+	let mut out_file = BufWriter::new(packet_file.try_clone()?);
+
+	let mut rd = std::io::BufReader::new(stream);
+
+	loop {
+		let msg = rd.read_packet()?;
+
+		if let Packet::VcpuInit(vcpu) = &msg {
+			info!("vcpu {} is online", vcpu.id);
+		}
+
+		out_file.write_packet_packed(&msg)?;
 	}
 }

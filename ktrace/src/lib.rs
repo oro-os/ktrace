@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::Result;
 use ctor::ctor;
-use ktrace_common::{Packet, TraceWrite, VcpuExit, VcpuIdle, VcpuInit, VcpuResume};
+use ktrace_common::{Inst, Packet, TraceWrite, VcpuExit, VcpuIdle, VcpuInit, VcpuResume};
 use qemu_plugin::{
 	CallbackFlags, PluginId, TranslationBlock, VCPUIndex,
 	install::{Args, Info, Value},
@@ -102,15 +102,17 @@ impl HasCallbacks for Ktrace {
 	) -> Result<()> {
 		for insn in tb.instructions() {
 			let vcpus = self.vcpus.clone();
-			let _vaddr = insn.vaddr();
+			let addr = insn.vaddr();
 
 			insn.register_execute_callback_flags(
 				move |vcpu_idx| {
-					let _vcpu = vcpus
+					let vcpu = vcpus
 						.get(&vcpu_idx)
 						.expect("instruction executed on unregistered vcpu");
 
-					// vcpu.trace.write_packet
+					unsafe { vcpu.trace.get().as_mut_unchecked() }
+						.write_packet(&Packet::Inst(Inst { addr }))
+						.expect("failed to write instruction");
 				},
 				CallbackFlags::QEMU_PLUGIN_CB_NO_REGS,
 			);
