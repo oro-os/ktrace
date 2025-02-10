@@ -1,5 +1,5 @@
 [package]
-name = "ktrace"
+name = "ktrace-plugin"
 publish = false
 version = "0.0.0"
 edition = "2021"
