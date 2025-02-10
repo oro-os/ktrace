@@ -60,12 +60,12 @@ fn main() {
 
 			impl OobStream for StateOobStream {
 				fn on_connected(&self) {
-					self.0.set_daemon_connected(true);
+					self.0.daemon_connected.set(true);
 					invalidate();
 				}
 
 				fn on_disconnected(&self) {
-					self.0.set_daemon_connected(false);
+					self.0.daemon_connected.set(false);
 					invalidate();
 				}
 			}
@@ -73,8 +73,15 @@ fn main() {
 			let client = query_client::run(sock_path, StateOobStream(app_state.clone()));
 
 			loop {
-				std::thread::sleep(Duration::from_secs(1));
-				let _ = client.request(Packet::Ping(1337));
+				if let Some(Packet::TraceLog { addresses }) = client.request(Packet::GetTraceLog {
+					count:     100,
+					thread_id: 0,
+				}) {
+					*app_state.last_addresses.lock().unwrap() = addresses;
+					invalidate();
+				}
+
+				std::thread::sleep(Duration::from_millis(200));
 			}
 		}
 	});

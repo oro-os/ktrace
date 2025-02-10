@@ -1,8 +1,16 @@
 use std::{
+	collections::HashMap,
+	fs::File,
+	io::{Seek, SeekFrom},
 	os::unix::net::UnixListener,
-	sync::{Arc, OnceLock, mpsc::Sender},
+	sync::{
+		Arc, OnceLock,
+		atomic::{AtomicUsize, Ordering::Relaxed},
+		mpsc::Sender,
+	},
 };
 
+use byteorder::{LittleEndian, ReadBytesExt};
 use ktrace_protocol::{Packet, PacketDeserializer, PacketSerializer};
 
 pub fn spawn(sock_path: String) -> QueryServer {
@@ -50,34 +58,65 @@ pub fn spawn(sock_path: String) -> QueryServer {
 				}
 			});
 
+			let mut threads = HashMap::new();
+
 			loop {
 				match master_recv
 					.recv()
 					.expect("failed to receive master message")
 				{
-					MasterMessage::Connection(ConnectionMessage { res, .. }) => {
+					MasterMessage::Connection(ConnectionMessage { res, thread_state }) => {
+						threads.insert(thread_state.id, thread_state);
+
 						res.set(master_send.clone())
 							.expect("failed to set connection");
 					}
-					MasterMessage::Thread(ThreadMessage { message, .. }) => {
+					MasterMessage::Thread(ThreadMessage { message, thread }) => {
 						match message {
 							Message::Exit => {
-								// TODO
+								let _ = threads.remove(&thread);
 							}
 							Message::Idle => {
-								// TODO
+								threads.get_mut(&thread).map(|_state| {
+									// TODO
+								});
 							}
 							Message::Resume => {
-								// TODO
+								threads.get_mut(&thread).map(|_state| {
+									// TODO
+								});
 							}
 						}
 					}
 					MasterMessage::Client(ClientMessage { req, res }) => {
 						match req {
-							Packet::Ping(n) => {
-								res.set(Packet::Pong(n)).unwrap();
+							Packet::GetTraceLog { count, thread_id } => {
+								let mut addresses = Vec::with_capacity(count as usize);
+
+								if let Some(state) = threads.get_mut(&thread_id) {
+									let size =
+										state.temp_file.metadata().map(|m| m.len()).unwrap_or(0)
+											/ 8;
+									let base = size.saturating_sub(count);
+									if let Ok(_) = state.temp_file.seek(SeekFrom::Start(base * 8)) {
+										for _ in 0..count {
+											if let Ok(addr) =
+												state.temp_file.read_u64::<LittleEndian>()
+											{
+												addresses.push(addr);
+											} else {
+												break;
+											}
+										}
+									}
+								}
+
+								res.set(Packet::TraceLog { addresses })
+									.expect("failed to set response");
 							}
-							Packet::Pong(_) => {}
+							_ => {
+								res.set(Packet::BadPacket).expect("failed to set response");
+							}
 						}
 					}
 				}
@@ -88,17 +127,24 @@ pub fn spawn(sock_path: String) -> QueryServer {
 	this
 }
 
+pub struct ThreadState {
+	pub id:           u32,
+	pub addr_counter: Arc<AtomicUsize>,
+	pub temp_file:    File,
+}
+
 pub struct QueryServer {
 	master_send: Sender<MasterMessage>,
 }
 
 impl QueryServer {
-	pub fn new_thread(&self, thread_id: u32) -> QueryServerThread {
+	pub fn new_thread(&self, thread_state: ThreadState) -> QueryServerThread {
 		let res = Arc::new(OnceLock::new());
+		let thread_id = thread_state.id;
 
 		self.master_send
 			.send(MasterMessage::Connection(ConnectionMessage {
-				thread_id,
+				thread_state,
 				res: res.clone(),
 			}))
 			.expect("failed to send message to master");
@@ -117,8 +163,8 @@ enum MasterMessage {
 }
 
 struct ConnectionMessage {
-	thread_id: u32,
-	res:       Arc<OnceLock<Sender<MasterMessage>>>,
+	thread_state: ThreadState,
+	res:          Arc<OnceLock<Sender<MasterMessage>>>,
 }
 
 struct ClientMessage {

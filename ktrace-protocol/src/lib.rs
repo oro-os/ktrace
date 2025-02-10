@@ -7,8 +7,9 @@ pub const DEFAULT_SOCKET_PATH: &str = "/tmp/ktrace-query.sock";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Packet {
-	Ping(u64),
-	Pong(u64),
+	BadPacket,
+	GetTraceLog { count: u64, thread_id: u32 },
+	TraceLog { addresses: Vec<u64> },
 }
 
 pub trait PacketSerializer: io::Write + Sized {

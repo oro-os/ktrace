@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ratatui::{
 	buffer::Buffer,
 	layout::Rect,
-	style::{Color, Style},
+	style::{Color, Style, Stylize},
 	text::{Line, Span},
 	widgets::Widget,
 };
@@ -22,7 +22,11 @@ impl<S: StatusBarState> Widget for StatusBar<S> {
 			Span::from("daemon: "),
 			Span::styled(
 				if connected { "online" } else { "offline" },
-				Style::default().fg(if connected { Color::Green } else { Color::Red }),
+				if connected {
+					Style::default().fg(Color::Green)
+				} else {
+					Style::default().fg(Color::Red).slow_blink()
+				},
 			),
 		])
 		.render(area, buf);

@@ -16,6 +16,8 @@ pub fn draw(frame: &mut Frame, state: &Arc<AppState>) {
 
 	let status_block = Block::default().borders(Borders::TOP);
 
+	frame.render_widget(widget::trace_log::TraceLog(state.clone()), layout[0]);
+
 	frame.render_widget(&status_block, layout[1]);
 	frame.render_widget(
 		widget::status_bar::StatusBar(state.clone()),

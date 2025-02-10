@@ -1,7 +1,10 @@
 use std::{
-	io::{self, BufWriter},
+	io::{self, BufWriter, Write},
 	os::unix::net::{UnixListener, UnixStream},
-	sync::Arc,
+	sync::{
+		Arc,
+		atomic::{AtomicUsize, Ordering::Relaxed},
+	},
 };
 
 mod query_server;
@@ -10,6 +13,7 @@ use byteorder::{LittleEndian, WriteBytesExt};
 use clap::Parser;
 use ktrace_plugin_protocol::{Packet, TraceRead};
 use log::{error, info, trace};
+use query_server::ThreadState;
 
 /// Runs the Kflame daemon, to which the QEMU plugin connects.
 #[derive(Parser, Debug)]
@@ -67,13 +71,16 @@ fn handle_vcpu_stream(
 	tmpdir: Option<String>,
 	query_serv: Arc<query_server::QueryServer>,
 ) -> io::Result<()> {
-	let packet_file = if let Some(tmpdir) = tmpdir {
-		tempfile::tempfile_in(tmpdir)?
+	let mut tf = tempfile::Builder::new();
+	tf.append(true);
+
+	let addr_file = if let Some(tmpdir) = tmpdir {
+		tf.tempfile_in(tmpdir)?
 	} else {
-		tempfile::tempfile()?
+		tf.tempfile()?
 	};
 
-	let mut out_file = BufWriter::new(packet_file.try_clone()?);
+	let mut out_file = BufWriter::new(addr_file.reopen()?);
 
 	let mut rd = std::io::BufReader::new(stream);
 
@@ -82,24 +89,34 @@ fn handle_vcpu_stream(
 		panic!("expected VcpuInit, got {msg:?}");
 	};
 
-	let client = query_serv.new_thread(vcpu.id);
+	let addr_counter = Arc::new(AtomicUsize::new(0));
+
+	let client = query_serv.new_thread(ThreadState {
+		id:           vcpu.id,
+		addr_counter: addr_counter.clone(),
+		temp_file:    addr_file.reopen()?,
+	});
 
 	info!("received VcpuInit for vcpu {}", vcpu.id);
 
 	loop {
 		match rd.read_packet()? {
 			Packet::VcpuResume => {
+				out_file.flush()?;
 				client.resume();
 			}
 			Packet::VcpuIdle => {
+				out_file.flush()?;
 				client.idle();
 			}
 			Packet::VcpuExit => {
+				out_file.flush()?;
 				client.exit();
 				break;
 			}
 			Packet::Inst(inst) => {
 				out_file.write_u64::<LittleEndian>(inst.addr)?;
+				addr_counter.fetch_add(1, Relaxed);
 			}
 			msg => {
 				panic!("unexpected message: {:?}", msg);
