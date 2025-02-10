@@ -1,0 +1,14 @@
+[package]
+name = "ktrace"
+publish = false
+version = "0.0.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow = "1.0.93"
+qemu-plugin = "9.0.0-v0"
+ctor = "0.2.8"
+ktrace-common = { path = "../ktrace-common" }
