@@ -4,7 +4,7 @@
 
 **Ktrace** is a low level (typically kernel) instruction tracing tool suite.
 
-> ![NOTE]
+> [!NOTE]
 > Ktrace is at a very, very early stage of development and is typically only developed on an as-needed
 > basis when issues arise developing the [Oro kernel](https://github.com/oro-os/kernel). If something is
 > missing, and you'd like to have it added, do not hesitate to submit a pull request!
