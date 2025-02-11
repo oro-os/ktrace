@@ -7,10 +7,11 @@ use ktrace_protocol::ThreadStatus;
 
 #[derive(Default, Debug)]
 pub struct AppState {
-	pub daemon_connected:  Flag,
-	pub last_addresses:    Mutex<Vec<u64>>,
-	pub thread_status:     AtomicUsize,
-	pub instruction_count: AtomicUsize,
+	pub daemon_connected:     Flag,
+	pub last_addresses:       Mutex<Vec<u64>>,
+	pub last_lower_addresses: Mutex<Vec<u64>>,
+	pub thread_status:        AtomicUsize,
+	pub instruction_count:    AtomicUsize,
 }
 
 impl crate::widget::status_bar::StatusBarState for AppState {
@@ -42,6 +43,11 @@ impl crate::widget::trace_log::TraceLogState for AppState {
 	#[inline]
 	fn get_last_addresses(&self) -> Vec<u64> {
 		self.last_addresses.lock().unwrap().clone()
+	}
+
+	#[inline]
+	fn get_last_lower_addresses(&self) -> Vec<u64> {
+		self.last_lower_addresses.lock().unwrap().clone()
 	}
 }
 

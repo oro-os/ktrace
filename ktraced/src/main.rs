@@ -27,14 +27,23 @@ struct Args {
 	/// The root directory for temporary trace files.
 	#[clap(short = 'T', long = "tmpdir")]
 	tmpdir: Option<String>,
+	/// Show verbose logs.
+	#[clap(short = 'v', long = "verbose")]
+	verbose: bool,
 }
 
 fn main() {
-	env_logger::builder()
-		.filter_level(log::LevelFilter::Info)
-		.init();
-
 	let args = Args::parse();
+
+	env_logger::builder()
+		.filter_level(
+			if args.verbose {
+				log::LevelFilter::Trace
+			} else {
+				log::LevelFilter::Info
+			},
+		)
+		.init();
 
 	// Try to unlink it
 	std::fs::remove_file(&args.socket_path).ok();
@@ -90,12 +99,14 @@ fn handle_vcpu_stream(
 	};
 
 	let addr_counter = Arc::new(AtomicUsize::new(0));
+	let last_lower_half = Arc::new(AtomicUsize::new(0));
 
 	let client = query_serv.new_thread(ThreadState {
-		id:           vcpu.id,
+		id: vcpu.id,
 		addr_counter: addr_counter.clone(),
-		temp_file:    addr_file.reopen()?,
-		status:       Default::default(),
+		temp_file: addr_file.reopen()?,
+		status: Default::default(),
+		last_lower_half: last_lower_half.clone(),
 	});
 
 	info!("received VcpuInit for vcpu {}", vcpu.id);
@@ -117,7 +128,10 @@ fn handle_vcpu_stream(
 			}
 			Packet::Inst(inst) => {
 				out_file.write_u64::<LittleEndian>(inst.addr)?;
-				addr_counter.fetch_add(1, Relaxed);
+				let count = addr_counter.fetch_add(1, Relaxed);
+				if inst.addr & 0x8000_0000_0000_0000 == 0 {
+					last_lower_half.store(count, Relaxed);
+				}
 			}
 			msg => {
 				panic!("unexpected message: {:?}", msg);

@@ -84,21 +84,13 @@ impl HasCallbacks for Ktrace {
 		Ok(())
 	}
 
-	fn on_vcpu_exit(
-		&mut self,
-		_id: PluginId,
-		vcpu_id: VCPUIndex,
-	) -> std::result::Result<(), anyhow::Error> {
+	fn on_vcpu_exit(&mut self, _id: PluginId, vcpu_id: VCPUIndex) -> std::result::Result<(), anyhow::Error> {
 		let vcpu = self.vcpus.get(&vcpu_id).expect("vcpu not found");
 		unsafe { vcpu.trace.get().as_mut_unchecked() }.write_packet(&Packet::VcpuExit)?;
 		Ok(())
 	}
 
-	fn on_translation_block_translate(
-		&mut self,
-		_id: PluginId,
-		tb: TranslationBlock,
-	) -> Result<()> {
+	fn on_translation_block_translate(&mut self, _id: PluginId, tb: TranslationBlock) -> Result<()> {
 		for insn in tb.instructions() {
 			let vcpus = self.vcpus.clone();
 			let addr = insn.vaddr();

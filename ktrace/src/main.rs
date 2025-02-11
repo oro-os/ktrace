@@ -6,7 +6,7 @@ use std::{
 use app_state::AppState;
 use clap::Parser;
 use crossterm::event::{self, Event};
-use ktrace_protocol::Packet;
+use ktrace_protocol::{Packet, TraceFilter};
 use query_client::OobStream;
 
 pub mod app_state;
@@ -77,8 +77,18 @@ fn main() {
 				if let Some(Packet::TraceLog { addresses }) = client.request(Packet::GetTraceLog {
 					count:     100,
 					thread_id: 0,
+					filter:    None,
 				}) {
 					*app_state.last_addresses.lock().unwrap() = addresses;
+					should_invalidate = true;
+				}
+
+				if let Some(Packet::TraceLog { addresses }) = client.request(Packet::GetTraceLog {
+					thread_id: 0,
+					count:     100,
+					filter:    Some(TraceFilter::LowerHalf),
+				}) {
+					*app_state.last_lower_addresses.lock().unwrap() = addresses;
 					should_invalidate = true;
 				}
 
@@ -89,9 +99,7 @@ fn main() {
 					should_invalidate = true;
 				}
 
-				if let Some(Packet::Status { status }) =
-					client.request(Packet::GetStatus { thread_id: 0 })
-				{
+				if let Some(Packet::Status { status }) = client.request(Packet::GetStatus { thread_id: 0 }) {
 					app_state.thread_status.store(status as usize, Relaxed);
 					should_invalidate = true;
 				}
