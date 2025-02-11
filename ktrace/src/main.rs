@@ -11,6 +11,7 @@ use query_client::OobStream;
 
 pub mod app_state;
 pub mod query_client;
+pub mod symbol_resolver;
 pub mod view;
 pub mod widget;
 
@@ -36,13 +37,23 @@ struct Args {
 	/// The socket path to connect to.
 	#[clap(short = 's', long = "sock", default_value = ktrace_protocol::DEFAULT_SOCKET_PATH)]
 	sock_path: String,
+	/// The binaries to load. *Order matters*; symbols are resolved based on first-hit.
+	/// If none are provided, only addresses are shown.
+	binaries:  Vec<String>,
 }
 
 fn main() {
 	let args = Args::parse();
 
-	let app_state = Arc::new(AppState::default());
 	let mut terminal = ratatui::init();
+
+	let resolver_client = symbol_resolver::run();
+
+	for binary in args.binaries {
+		resolver_client.add_binary(binary);
+	}
+
+	let app_state = Arc::new(AppState::new(resolver_client));
 
 	std::thread::spawn(|| {
 		loop {
@@ -108,7 +119,7 @@ fn main() {
 					invalidate();
 				}
 
-				std::thread::sleep(Duration::from_millis(200));
+				std::thread::sleep(Duration::from_millis(50));
 			}
 		}
 	});
@@ -123,7 +134,7 @@ fn main() {
 		}
 
 		terminal
-			.draw(|f| view::primary::draw(f, &app_state))
+			.draw(|f| view::trace_log::draw(f, &app_state))
 			.expect("failed to draw frame");
 
 		wait_for_invalidation();

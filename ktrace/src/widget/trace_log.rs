@@ -1,60 +1,58 @@
-use std::sync::Arc;
-
 use ratatui::{
 	buffer::Buffer,
-	layout::{Constraint, Direction, Layout, Rect},
+	layout::Rect,
+	style::{Color, Style},
+	text::{Span, Text},
 	widgets::{List, ListItem, Widget},
 };
 
-pub struct TraceLog<S: TraceLogState>(pub Arc<S>);
+use crate::symbol_resolver::Symbol;
 
-pub trait TraceLogState {
-	fn get_last_addresses(&self) -> Vec<u64>;
-	fn get_last_lower_addresses(&self) -> Vec<u64>;
-}
+pub struct TraceLog<'a>(pub &'a Vec<Symbol>);
 
-impl<S: TraceLogState> Widget for TraceLog<S> {
+const ADDR_STYLE: Style = Style::new().fg(Color::Yellow);
+const SYM_ADDR_STYLE: Style = Style::new().fg(Color::Yellow);
+const NAME_STYLE: Style = Style::new().fg(Color::White);
+const FILE_STYLE: Style = Style::new().fg(Color::DarkGray);
+const LINE_STYLE: Style = Style::new().fg(Color::Cyan);
+
+impl<'a> Widget for TraceLog<'a> {
 	fn render(self, area: Rect, buf: &mut Buffer)
 	where
 		Self: Sized,
 	{
-		let layout = Layout::default()
-			.direction(Direction::Horizontal)
-			.constraints([
-				Constraint::Percentage(50),
-				Constraint::Length(1),
-				Constraint::Percentage(50),
-			])
-			.split(area);
+		let num_rows = usize::from(area.height);
+		let Some(sym_slice) = self.0.get(self.0.len().saturating_sub(num_rows)..) else {
+			return;
+		};
 
-		{
-			let num_rows = usize::from(layout[2].height);
-			let last_addresses = self.0.get_last_lower_addresses();
-			let Some(addr_slice) = last_addresses.get(last_addresses.len().saturating_sub(num_rows)..) else {
-				return;
-			};
+		List::new(sym_slice.iter().map(|sym| {
+			let mut text = Text::default();
+			text.push_span(Span::styled(format!("{:016X}", sym.addr), ADDR_STYLE));
 
-			List::new(
-				addr_slice
-					.iter()
-					.map(|addr| ListItem::new(format!("{addr:#016X}"))),
-			)
-			.render(layout[2], buf);
-		}
+			if let Some(name) = &sym.name {
+				text.push_span(Span::raw(" "));
+				text.push_span(Span::styled(name.clone(), NAME_STYLE));
+			}
 
-		{
-			let num_rows = usize::from(layout[0].height);
-			let last_addresses = self.0.get_last_addresses();
-			let Some(addr_slice) = last_addresses.get(last_addresses.len().saturating_sub(num_rows)..) else {
-				return;
-			};
+			if let Some(sym_addr) = sym.sym_addr {
+				text.push_span(Span::raw("<"));
+				text.push_span(Span::styled(format!("{:016X}", sym_addr), SYM_ADDR_STYLE));
+				text.push_span(Span::raw(">"));
+			}
 
-			List::new(
-				addr_slice
-					.iter()
-					.map(|addr| ListItem::new(format!("{addr:#016X}"))),
-			)
-			.render(layout[0], buf);
-		}
+			if let Some(file) = &sym.file {
+				text.push_span(Span::raw(" "));
+				text.push_span(Span::styled(file.clone(), FILE_STYLE));
+			}
+
+			if let Some(line) = sym.line {
+				text.push_span(Span::raw(":"));
+				text.push_span(Span::styled(format!("{}", line), LINE_STYLE));
+			}
+
+			ListItem::new(text)
+		}))
+		.render(area, buf);
 	}
 }
