@@ -1,14 +1,10 @@
 use std::{
 	io::{self, BufReader, Read},
 	os::unix::net::UnixStream,
-	sync::{
-		Arc, OnceLock,
-		mpsc::{Receiver, Sender},
-	},
+	sync::{Arc, OnceLock, mpsc::Sender},
 	time::Duration,
 };
 
-use byteorder::{LittleEndian, ReadBytesExt};
 use ktrace_protocol::{Packet, PacketDeserializer, PacketSerializer, TraceFilter};
 
 #[derive(Debug)]

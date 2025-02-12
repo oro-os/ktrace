@@ -5,7 +5,6 @@ use std::{
 };
 
 use app_state::AppState;
-use byteorder::{LittleEndian, ReadBytesExt};
 use clap::Parser;
 use crossterm::event::{self, Event};
 use ktrace_protocol::{Packet, TraceFilter};
