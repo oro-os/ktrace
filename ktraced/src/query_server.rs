@@ -1,13 +1,14 @@
 use std::{
 	collections::HashMap,
 	fs::File,
-	io::{Cursor, Read, Seek, SeekFrom, Write},
+	io::{Cursor, ErrorKind, Read, Seek, SeekFrom, Write},
 	os::unix::net::{UnixListener, UnixStream},
 	sync::{
 		Arc, OnceLock,
 		atomic::{AtomicUsize, Ordering::Relaxed},
 		mpsc::Sender,
 	},
+	time::Duration,
 };
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
@@ -127,14 +128,34 @@ pub fn spawn(sock_path: String) -> QueryServer {
 							let mut buffer = Box::new([0u8; BUFFER_SIZE]);
 							let mut write_buffer = Box::new([0u8; BUFFER_SIZE]);
 
-							loop {
-								let size = file.metadata().map(|m| m.len()).unwrap_or(0) / 8;
-								// At least 1 so that we block until one is available.
-								let available = (size - counter).min((buffer.len() as u64) / 8).max(1);
-								counter += available;
+							let mut eofcount = 0;
 
-								file.read_exact(&mut buffer[..(available as usize * 8)])
-									.expect("failed to read from file");
+							loop {
+								let size = file.metadata().map(|m| m.len()).unwrap() / 8;
+								let available = (size - counter).min((buffer.len() as u64) / 8);
+
+								if available == 0 {
+									std::thread::sleep(Duration::from_millis(50));
+									continue;
+								}
+
+								file.seek(SeekFrom::Start(counter * 8))
+									.expect("failed to seek to start");
+
+								if let Err(err) = file.read_exact(&mut buffer[..(available as usize * 8)]) {
+									if err.kind() == ErrorKind::UnexpectedEof {
+										eofcount += 1;
+										if eofcount > 10 {
+											log::warn!("reached EOF 10 times, closing stream");
+											break;
+										}
+									} else {
+										panic!("failed to read from file: {err:?}");
+									}
+								}
+
+								// At least 1 so that we block until one is available.
+								counter += available;
 
 								let mut cursor = Cursor::new(&buffer[..(available as usize * 8)]);
 								let mut write_cursor = Cursor::new(&mut write_buffer[..]);
@@ -163,6 +184,7 @@ pub fn spawn(sock_path: String) -> QueryServer {
 									stream
 										.write_all(&write_buffer[..byte_count])
 										.expect("failed to send trace log");
+									log::debug!("sent {} bytes to trace stream", byte_count);
 								}
 							}
 						});

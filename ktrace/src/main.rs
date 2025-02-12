@@ -1,9 +1,11 @@
 use std::{
+	io::Read,
 	sync::{Arc, Condvar, Mutex, atomic::Ordering::Relaxed},
 	time::Duration,
 };
 
 use app_state::AppState;
+use byteorder::{LittleEndian, ReadBytesExt};
 use clap::Parser;
 use crossterm::event::{self, Event};
 use ktrace_protocol::{Packet, TraceFilter};
@@ -92,7 +94,7 @@ fn main() {
 
 				move || {
 					loop {
-						let Ok(stream) = client.open_stream::<128>(0, None) else {
+						let Ok(mut stream) = client.open_stream(0, None) else {
 							std::thread::sleep(Duration::from_millis(100));
 							continue;
 						};
@@ -101,9 +103,71 @@ fn main() {
 							app_state.last_addresses.lock().unwrap().clear();
 						}
 
-						for addr in stream {
+						let mut buf = Box::new([0u8; 1024 * 1024 * 2]);
+						let mut leftover = 0;
+
+						while let Ok(nread) = stream.read(&mut buf[leftover..]) {
+							if nread == 0 {
+								break;
+							}
+
+							let total = nread + leftover;
+							let addr_slice =
+								unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u64, total / 8) };
 							{
-								app_state.last_addresses.lock().unwrap().push_back(addr);
+								let mut addrs = app_state.last_addresses.lock().unwrap();
+								let push_base = addr_slice.len().saturating_sub(addrs.capacity());
+								addrs.extend_from_slice(&addr_slice[push_base..]);
+							}
+
+							leftover = total & 7;
+							if leftover != 0 {
+								let leftover_base = total - leftover;
+								buf.copy_within(leftover_base..total, 0);
+							}
+
+							invalidate();
+						}
+					}
+				}
+			});
+
+			std::thread::spawn({
+				let app_state = app_state.clone();
+				let client = client.clone();
+
+				move || {
+					loop {
+						let Ok(mut stream) = client.open_stream(0, Some(TraceFilter::LowerHalf)) else {
+							std::thread::sleep(Duration::from_millis(100));
+							continue;
+						};
+
+						{
+							app_state.last_addresses.lock().unwrap().clear();
+						}
+
+						let mut buf = Box::new([0u8; 1024 * 1024 * 2]);
+						let mut leftover = 0;
+
+						while let Ok(nread) = stream.read(&mut buf[leftover..]) {
+							if nread == 0 {
+								break;
+							}
+
+							let total = nread + leftover;
+							let addr_slice =
+								unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u64, total / 8) };
+							{
+								let mut addrs = app_state.last_lower_addresses.lock().unwrap();
+								let push_base = addr_slice.len().saturating_sub(addrs.capacity());
+								addrs.extend_from_slice(&addr_slice[push_base..]);
+							}
+
+							leftover = total & 7;
+							if leftover != 0 {
+								let leftover_base = total - leftover;
+								buf.copy_within(leftover_base..total, 0);
 							}
 
 							invalidate();

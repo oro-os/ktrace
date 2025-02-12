@@ -28,21 +28,19 @@ struct Args {
 	#[clap(short = 'T', long = "tmpdir")]
 	tmpdir: Option<String>,
 	/// Show verbose logs.
-	#[clap(short = 'v', long = "verbose")]
-	verbose: bool,
+	#[clap(short = 'v', long = "verbose", action = clap::ArgAction::Count)]
+	verbose: usize,
 }
 
 fn main() {
 	let args = Args::parse();
 
 	env_logger::builder()
-		.filter_level(
-			if args.verbose {
-				log::LevelFilter::Trace
-			} else {
-				log::LevelFilter::Info
-			},
-		)
+		.filter_level(match args.verbose {
+			0 => log::LevelFilter::Info,
+			1 => log::LevelFilter::Debug,
+			_ => log::LevelFilter::Trace,
+		})
 		.init();
 
 	// Try to unlink it

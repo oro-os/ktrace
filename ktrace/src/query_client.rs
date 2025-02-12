@@ -1,5 +1,5 @@
 use std::{
-	io::{self, BufReader},
+	io::{self, BufReader, Read},
 	os::unix::net::UnixStream,
 	sync::{
 		Arc, OnceLock,
@@ -40,26 +40,10 @@ impl Client {
 		res.wait().clone().take()
 	}
 
-	pub fn open_stream<const BUF_SZ: usize>(
-		&self,
-		thread_id: u32,
-		filter: Option<TraceFilter>,
-	) -> io::Result<Receiver<u64>> {
+	pub fn open_stream(&self, thread_id: u32, filter: Option<TraceFilter>) -> io::Result<impl Read> {
 		let mut stream = UnixStream::connect(&self.socket_path)?;
 		stream.serialize_packet(&Packet::OpenStream { thread_id, filter })?;
-		let (sender, receiver) = std::sync::mpsc::sync_channel(BUF_SZ);
-
-		std::thread::spawn(move || {
-			let mut stream = BufReader::with_capacity(1024 * 1024 * 16, stream);
-
-			while let Ok(addr) = stream.read_u64::<LittleEndian>() {
-				if sender.send(addr).is_err() {
-					break;
-				}
-			}
-		});
-
-		Ok(receiver)
+		Ok(BufReader::with_capacity(1024 * 1024 * 128, stream))
 	}
 }
 
