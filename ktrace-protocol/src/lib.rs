@@ -18,11 +18,6 @@ pub enum Error {
 #[repr(u8)]
 pub enum Packet {
 	Error(Error),
-	GetTraceLog {
-		thread_id: u32,
-		count:     u64,
-		filter:    Option<TraceFilter>,
-	},
 	GetStatus {
 		thread_id: u32,
 	},
@@ -31,9 +26,6 @@ pub enum Packet {
 	},
 	Status {
 		status: ThreadStatus,
-	},
-	TraceLog {
-		addresses: Vec<u64>,
 	},
 	InstCount {
 		count: usize,
@@ -48,16 +40,6 @@ impl fmt::Debug for Packet {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
 			Packet::Error(err) => write!(f, "Error {{ err: {err:?} }}"),
-			Packet::GetTraceLog {
-				thread_id,
-				count,
-				filter,
-			} => {
-				write!(
-					f,
-					"GetTraceLog {{ thread_id: {thread_id:?}, count: {count:?}, filter: {filter:?} }}",
-				)
-			}
 			Packet::GetStatus { thread_id } => {
 				write!(f, "GetStatus {{ thread_id: {thread_id:?} }}")
 			}
@@ -65,9 +47,6 @@ impl fmt::Debug for Packet {
 				write!(f, "GetInstCount {{ thread_id: {thread_id:?} }}")
 			}
 			Packet::Status { status } => write!(f, "Status {{ status: {status:?} }}"),
-			Packet::TraceLog { addresses } => {
-				write!(f, "TraceLog {{ addresses: {addresses:?} }}")
-			}
 			Packet::InstCount { count } => write!(f, "InstCount {{ count: {count:?} }}"),
 			Packet::OpenStream { filter, thread_id } => {
 				write!(

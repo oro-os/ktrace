@@ -1,10 +1,15 @@
 use std::{
+	io::{self, BufReader},
 	os::unix::net::UnixStream,
-	sync::{Arc, OnceLock, mpsc::Sender},
+	sync::{
+		Arc, OnceLock,
+		mpsc::{Receiver, Sender},
+	},
 	time::Duration,
 };
 
-use ktrace_protocol::{Packet, PacketDeserializer, PacketSerializer};
+use byteorder::{LittleEndian, ReadBytesExt};
+use ktrace_protocol::{Packet, PacketDeserializer, PacketSerializer, TraceFilter};
 
 #[derive(Debug)]
 pub enum Message {
@@ -14,11 +19,17 @@ pub enum Message {
 }
 
 pub struct Client {
-	sender: Sender<Request>,
+	socket_path: String,
+	sender:      Sender<Request>,
 }
 
 impl Client {
 	pub fn request(&self, req: Packet) -> Option<Packet> {
+		debug_assert!(
+			!matches!(req, Packet::OpenStream { .. }),
+			"use open_stream instead"
+		);
+
 		let res = Arc::new(OnceLock::new());
 		self.sender
 			.send(Request {
@@ -27,6 +38,28 @@ impl Client {
 			})
 			.expect("failed to send request");
 		res.wait().clone().take()
+	}
+
+	pub fn open_stream<const BUF_SZ: usize>(
+		&self,
+		thread_id: u32,
+		filter: Option<TraceFilter>,
+	) -> io::Result<Receiver<u64>> {
+		let mut stream = UnixStream::connect(&self.socket_path)?;
+		stream.serialize_packet(&Packet::OpenStream { thread_id, filter })?;
+		let (sender, receiver) = std::sync::mpsc::sync_channel(BUF_SZ);
+
+		std::thread::spawn(move || {
+			let mut stream = BufReader::with_capacity(1024 * 1024 * 16, stream);
+
+			while let Ok(addr) = stream.read_u64::<LittleEndian>() {
+				if sender.send(addr).is_err() {
+					break;
+				}
+			}
+		});
+
+		Ok(receiver)
 	}
 }
 
@@ -37,6 +70,11 @@ pub trait OobStream {
 
 pub fn run<S: OobStream + Send + 'static>(sock_path: String, oob_stream: S) -> Client {
 	let (sender, receiver) = std::sync::mpsc::channel();
+
+	let this = Client {
+		sender,
+		socket_path: sock_path.clone(),
+	};
 
 	std::thread::spawn(move || {
 		loop {
@@ -70,7 +108,7 @@ pub fn run<S: OobStream + Send + 'static>(sock_path: String, oob_stream: S) -> C
 		}
 	});
 
-	Client { sender }
+	this
 }
 
 struct Request {

@@ -99,14 +99,12 @@ fn handle_vcpu_stream(
 	};
 
 	let addr_counter = Arc::new(AtomicUsize::new(0));
-	let last_lower_half = Arc::new(AtomicUsize::new(0));
 
 	let client = query_serv.new_thread(ThreadState {
-		id: vcpu.id,
+		id:           vcpu.id,
 		addr_counter: addr_counter.clone(),
-		temp_file: addr_file.reopen()?,
-		status: Default::default(),
-		last_lower_half: last_lower_half.clone(),
+		temp_file:    addr_file.reopen()?,
+		status:       Default::default(),
 	});
 
 	info!("received VcpuInit for vcpu {}", vcpu.id);
@@ -128,10 +126,7 @@ fn handle_vcpu_stream(
 			}
 			Packet::Inst(inst) => {
 				out_file.write_u64::<LittleEndian>(inst.addr)?;
-				let count = addr_counter.fetch_add(1, Relaxed);
-				if inst.addr & 0x8000_0000_0000_0000 == 0 {
-					last_lower_half.store(count, Relaxed);
-				}
+				addr_counter.fetch_add(1, Relaxed);
 			}
 			msg => {
 				panic!("unexpected message: {:?}", msg);

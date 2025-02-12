@@ -81,27 +81,39 @@ fn main() {
 				}
 			}
 
-			let client = query_client::run(sock_path, StateOobStream(app_state.clone()));
+			let client = Arc::new(query_client::run(
+				sock_path,
+				StateOobStream(app_state.clone()),
+			));
+
+			std::thread::spawn({
+				let app_state = app_state.clone();
+				let client = client.clone();
+
+				move || {
+					loop {
+						let Ok(stream) = client.open_stream::<128>(0, None) else {
+							std::thread::sleep(Duration::from_millis(100));
+							continue;
+						};
+
+						{
+							app_state.last_addresses.lock().unwrap().clear();
+						}
+
+						for addr in stream {
+							{
+								app_state.last_addresses.lock().unwrap().push_back(addr);
+							}
+
+							invalidate();
+						}
+					}
+				}
+			});
 
 			loop {
 				let mut should_invalidate = false;
-				if let Some(Packet::TraceLog { addresses }) = client.request(Packet::GetTraceLog {
-					count:     100,
-					thread_id: 0,
-					filter:    None,
-				}) {
-					*app_state.last_addresses.lock().unwrap() = addresses;
-					should_invalidate = true;
-				}
-
-				if let Some(Packet::TraceLog { addresses }) = client.request(Packet::GetTraceLog {
-					thread_id: 0,
-					count:     100,
-					filter:    Some(TraceFilter::LowerHalf),
-				}) {
-					*app_state.last_lower_addresses.lock().unwrap() = addresses;
-					should_invalidate = true;
-				}
 
 				if let Some(Packet::InstCount { count }) =
 					client.request(Packet::GetInstCount { thread_id: 0 })

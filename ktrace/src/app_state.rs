@@ -3,6 +3,7 @@ use std::sync::{
 	atomic::{AtomicBool, AtomicUsize, Ordering::Relaxed},
 };
 
+use circular_buffer::CircularBuffer;
 use ktrace_protocol::ThreadStatus;
 use tinylfu_cached::cache::{cached::CacheD, config::ConfigBuilder};
 use tokio::sync::Mutex as AsyncMutex;
@@ -11,8 +12,8 @@ use crate::symbol_resolver::{ResolverClient, Symbol};
 
 pub struct AppState {
 	pub daemon_connected:     Flag,
-	pub last_addresses:       Mutex<Vec<u64>>,
-	pub last_lower_addresses: Mutex<Vec<u64>>,
+	pub last_addresses:       Mutex<CircularBuffer<256, u64>>,
+	pub last_lower_addresses: Mutex<CircularBuffer<256, u64>>,
 	pub thread_status:        AtomicUsize,
 	pub instruction_count:    AtomicUsize,
 	pub resolver_client:      ResolverClient,
@@ -23,8 +24,8 @@ impl AppState {
 	pub fn new(resolver_client: ResolverClient) -> Self {
 		Self {
 			daemon_connected: Flag::new(false),
-			last_addresses: Mutex::new(Vec::new()),
-			last_lower_addresses: Mutex::new(Vec::new()),
+			last_addresses: Mutex::new(CircularBuffer::new()),
+			last_lower_addresses: Mutex::new(CircularBuffer::new()),
 			thread_status: AtomicUsize::new(ThreadStatus::Dead as usize),
 			instruction_count: AtomicUsize::new(0),
 			resolver_client,
@@ -32,7 +33,7 @@ impl AppState {
 		}
 	}
 
-	fn resolve_all_for_list(&self, list: &Vec<u64>) -> Vec<Symbol> {
+	fn resolve_all_for_list<const SZ: usize>(&self, list: &CircularBuffer<SZ, u64>) -> Vec<Symbol> {
 		// TODO(qix-): [internal screaming]
 		list.iter()
 			.map(|addr| {

@@ -1,7 +1,7 @@
 use std::{
 	collections::HashMap,
 	fs::File,
-	io::{Cursor, Read, Seek, SeekFrom},
+	io::{Cursor, Read, Seek, SeekFrom, Write},
 	os::unix::net::{UnixListener, UnixStream},
 	sync::{
 		Arc, OnceLock,
@@ -10,7 +10,7 @@ use std::{
 	},
 };
 
-use byteorder::{LittleEndian, ReadBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use ktrace_protocol::{
 	Error as PacketError, Packet, PacketDeserializer, PacketSerializer, ThreadStatus, TraceFilter,
 };
@@ -113,8 +113,7 @@ pub fn spawn(sock_path: String) -> QueryServer {
 							.get(&thread_id)
 							.map(|state| state.temp_file.try_clone().expect("failed to clone file"))
 						else {
-							// Best effort.
-							let _ = stream.serialize_packet(&Packet::Error(PacketError::BadThread));
+							// Just disconnect.
 							continue;
 						};
 
@@ -124,11 +123,11 @@ pub fn spawn(sock_path: String) -> QueryServer {
 							file.seek(SeekFrom::Start(0))
 								.expect("failed to seek to start");
 
-							let mut buffer = [0u8; 4096 * 16];
+							const BUFFER_SIZE: usize = 4096 * 4096 * 16;
+							let mut buffer = Box::new([0u8; BUFFER_SIZE]);
+							let mut write_buffer = Box::new([0u8; BUFFER_SIZE]);
 
 							loop {
-								let mut results = Vec::with_capacity(buffer.len() / 8);
-
 								let size = file.metadata().map(|m| m.len()).unwrap_or(0) / 8;
 								// At least 1 so that we block until one is available.
 								let available = (size - counter).min((buffer.len() as u64) / 8).max(1);
@@ -138,6 +137,7 @@ pub fn spawn(sock_path: String) -> QueryServer {
 									.expect("failed to read from file");
 
 								let mut cursor = Cursor::new(&buffer[..(available as usize * 8)]);
+								let mut write_cursor = Cursor::new(&mut write_buffer[..]);
 
 								for _ in 0..available {
 									if let Ok(addr) = cursor.read_u64::<LittleEndian>() {
@@ -147,16 +147,21 @@ pub fn spawn(sock_path: String) -> QueryServer {
 										};
 
 										if include {
-											results.push(addr);
+											write_cursor
+												.write_u64::<LittleEndian>(addr)
+												.expect("failed to write to buffer");
 										}
 									} else {
 										break;
 									}
 								}
 
-								if !results.is_empty() {
+								let byte_count = write_cursor.position() as usize;
+								drop(write_cursor);
+
+								if byte_count > 0 {
 									stream
-										.serialize_packet(&Packet::TraceLog { addresses: results })
+										.write_all(&write_buffer[..byte_count])
 										.expect("failed to send trace log");
 								}
 							}
@@ -174,96 +179,6 @@ pub fn spawn(sock_path: String) -> QueryServer {
 						}
 
 						match req {
-							Packet::GetTraceLog {
-								count,
-								thread_id,
-								filter,
-							} => {
-								let mut addresses = Vec::with_capacity(count as usize);
-
-								if let Some(state) = threads.get_mut(&thread_id) {
-									let size = state.temp_file.metadata().map(|m| m.len()).unwrap_or(0) / 8;
-
-									match filter {
-										None => {
-											let base = size.saturating_sub(count);
-											if let Ok(_) = state.temp_file.seek(SeekFrom::Start(base * 8)) {
-												for _ in 0..count {
-													if let Ok(addr) =
-														state.temp_file.read_u64::<LittleEndian>()
-													{
-														addresses.push(addr);
-													} else {
-														break;
-													}
-												}
-											}
-										}
-										Some(TraceFilter::LowerHalf) => {
-											// NOTE(qix-): This is a little naive; not all implementations
-											// NOTE(qix-): will have the high bit set for higher-half addresses.
-											const MASK: u64 = 0x8000_0000_0000_0000;
-
-											// We traverse backward, potentially quite slowly, to find
-											// the latest N addresses that match the filter. Then we reverse
-											// the vector.
-											let mut cur_base =
-												size.min(state.last_lower_half.load(Relaxed) as u64 + 1);
-
-											let mut buf = [0u8; 4096];
-											let mut found_buf = [0u64; 4096 / 8];
-											while addresses.len() < count as usize {
-												if cur_base == 0 {
-													break;
-												}
-
-												let new_base =
-													cur_base.saturating_sub((buf.len() / 8) as u64);
-												let search_count = cur_base - new_base;
-												cur_base = new_base;
-
-												if let Ok(_) =
-													state.temp_file.seek(SeekFrom::Start(cur_base * 8))
-												{
-													if let Ok(_) = state
-														.temp_file
-														.read_exact(&mut buf[..((search_count * 8) as usize)])
-													{
-														let mut cursor = Cursor::new(
-															&buf[..((search_count * 8) as usize)],
-														);
-														let mut found = 0;
-
-														for _ in 0..search_count {
-															if let Ok(addr) =
-																cursor.read_u64::<LittleEndian>()
-															{
-																if addr & MASK == 0 && addr != 0 {
-																	found_buf[found] = addr;
-																	found += 1;
-																}
-															} else {
-																break;
-															}
-														}
-
-														if found > 0 {
-															found_buf[..found].reverse();
-															addresses.extend_from_slice(&found_buf[..found]);
-														}
-													} else {
-														break;
-													}
-												} else {
-													break;
-												}
-											}
-										}
-									}
-								}
-
-								respond!(res, Packet::TraceLog { addresses });
-							}
 							Packet::GetStatus { thread_id } => {
 								let status = threads
 									.get(&thread_id)
@@ -298,11 +213,10 @@ pub fn spawn(sock_path: String) -> QueryServer {
 }
 
 pub struct ThreadState {
-	pub id: u32,
-	pub temp_file: File,
+	pub id:           u32,
+	pub temp_file:    File,
 	pub addr_counter: Arc<AtomicUsize>,
-	pub last_lower_half: Arc<AtomicUsize>,
-	pub status: ThreadStatus,
+	pub status:       ThreadStatus,
 }
 
 pub struct QueryServer {
