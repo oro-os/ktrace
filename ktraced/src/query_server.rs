@@ -2,7 +2,7 @@ use std::{
 	collections::HashMap,
 	fs::File,
 	io::{Cursor, Read, Seek, SeekFrom},
-	os::unix::net::UnixListener,
+	os::unix::net::{UnixListener, UnixStream},
 	sync::{
 		Arc, OnceLock,
 		atomic::{AtomicUsize, Ordering::Relaxed},
@@ -11,7 +11,9 @@ use std::{
 };
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use ktrace_protocol::{Packet, PacketDeserializer, PacketSerializer, ThreadStatus, TraceFilter};
+use ktrace_protocol::{
+	Error as PacketError, Packet, PacketDeserializer, PacketSerializer, ThreadStatus, TraceFilter,
+};
 use log::trace;
 
 pub fn spawn(sock_path: String) -> QueryServer {
@@ -39,6 +41,18 @@ pub fn spawn(sock_path: String) -> QueryServer {
 								let req = stream
 									.deserialize_packet()
 									.expect("failed to deserialize packet");
+
+								if let Packet::OpenStream { thread_id, filter } = &req {
+									master_send
+										.send(MasterMessage::OpenStream(OpenStreamMessage {
+											stream,
+											thread_id: *thread_id,
+											filter: *filter,
+										}))
+										.expect("failed to send message to master");
+									return;
+								}
+
 								let res = Arc::new(OnceLock::new());
 
 								master_send
@@ -89,6 +103,64 @@ pub fn spawn(sock_path: String) -> QueryServer {
 								});
 							}
 						}
+					}
+					MasterMessage::OpenStream(OpenStreamMessage {
+						mut stream,
+						thread_id,
+						filter,
+					}) => {
+						let Some(mut file) = threads
+							.get(&thread_id)
+							.map(|state| state.temp_file.try_clone().expect("failed to clone file"))
+						else {
+							// Best effort.
+							let _ = stream.serialize_packet(&Packet::Error(PacketError::BadThread));
+							continue;
+						};
+
+						std::thread::spawn(move || {
+							let mut counter = 0;
+
+							file.seek(SeekFrom::Start(0))
+								.expect("failed to seek to start");
+
+							let mut buffer = [0u8; 4096 * 16];
+
+							loop {
+								let mut results = Vec::with_capacity(buffer.len() / 8);
+
+								let size = file.metadata().map(|m| m.len()).unwrap_or(0) / 8;
+								// At least 1 so that we block until one is available.
+								let available = (size - counter).min((buffer.len() as u64) / 8).max(1);
+								counter += available;
+
+								file.read_exact(&mut buffer[..(available as usize * 8)])
+									.expect("failed to read from file");
+
+								let mut cursor = Cursor::new(&buffer[..(available as usize * 8)]);
+
+								for _ in 0..available {
+									if let Ok(addr) = cursor.read_u64::<LittleEndian>() {
+										let include = match filter {
+											None => true,
+											Some(TraceFilter::LowerHalf) => addr & 0x8000_0000_0000_0000 == 0,
+										};
+
+										if include {
+											results.push(addr);
+										}
+									} else {
+										break;
+									}
+								}
+
+								if !results.is_empty() {
+									stream
+										.serialize_packet(&Packet::TraceLog { addresses: results })
+										.expect("failed to send trace log");
+								}
+							}
+						});
 					}
 					MasterMessage::Client(ClientMessage { req, res }) => {
 						trace!("<-- {req:?}");
@@ -208,8 +280,12 @@ pub fn spawn(sock_path: String) -> QueryServer {
 
 								respond!(res, Packet::InstCount { count });
 							}
+							Packet::OpenStream { .. } => {
+								unreachable!()
+							}
 							_ => {
-								res.set(Packet::BadPacket).expect("failed to set response");
+								res.set(Packet::Error(PacketError::BadPacket))
+									.expect("failed to set response");
 							}
 						}
 					}
@@ -256,6 +332,13 @@ enum MasterMessage {
 	Connection(ConnectionMessage),
 	Thread(ThreadMessage),
 	Client(ClientMessage),
+	OpenStream(OpenStreamMessage),
+}
+
+struct OpenStreamMessage {
+	thread_id: u32,
+	stream:    UnixStream,
+	filter:    Option<TraceFilter>,
 }
 
 struct ConnectionMessage {
